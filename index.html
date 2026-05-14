@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TikTok Tracker — Lujo Network</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -198,6 +200,7 @@ tr:hover td{background:#FAFAFA;}
         <span>%</span>
       </div>
       <button class="btn-sm success" onclick="exportCSV()">↓ Exportar CSV</button>
+      <button class="btn-sm primary" onclick="exportPDF()">📄 Informe mensual</button>
     </div>
 
     <!-- CANCIONES -->
@@ -567,6 +570,216 @@ function switchRange(r,btn){
   document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   renderChart();renderHistory();
+}
+
+
+// ── EXPORTAR PDF ───────────────────────────────────────────
+async function exportPDF(){
+  const {jsPDF} = window.jspdf;
+  const now = new Date();
+  const mesNombre = now.toLocaleString('es-ES',{month:'long',year:'numeric'});
+  const primerDiaMes = new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
+  const ultimoDiaMes = new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().slice(0,10);
+
+  // Filtrar datos del mes actual
+  const datosMes = history.filter(r=>r.date>=primerDiaMes&&r.date<=ultimoDiaMes);
+
+  const doc = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const W=210, margin=16;
+  let y=margin;
+
+  // Paleta
+  const headerColor=[30,41,59];
+  const accentColor=[26,86,219];
+  const greenColor=[5,122,85];
+  const redColor=[224,36,36];
+  const grayText=[107,114,128];
+  const borderColor=[229,231,235];
+
+  // ── CABECERA ──
+  doc.setFillColor(...headerColor);
+  doc.rect(0,0,W,22,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(13);doc.setFont('helvetica','bold');
+  doc.text('LUJO NETWORK',margin,13);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.setTextColor(148,163,184);
+  doc.text('TikTok Performance Report',margin+48,13);
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(9);
+  doc.text(`Informe: ${mesNombre}`,W-margin,13,{align:'right'});
+  y=32;
+
+  // ── SUBTÍTULO ──
+  doc.setTextColor(...grayText);
+  doc.setFontSize(8);doc.setFont('helvetica','normal');
+  doc.text(`Generado el ${now.toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})} · Período: ${primerDiaMes} → ${ultimoDiaMes} · ${datosMes.length} registros`,margin,y);
+  y+=8;
+
+  // ── SEPARADOR ──
+  doc.setDrawColor(...borderColor);doc.setLineWidth(0.3);
+  doc.line(margin,y,W-margin,y);y+=8;
+
+  // ── RESUMEN POR CANCIÓN ──
+  doc.setTextColor(...headerColor);
+  doc.setFontSize(10);doc.setFont('helvetica','bold');
+  doc.text('Resumen por canción',margin,y);y+=7;
+
+  SONGS.forEach((s,si)=>{
+    const rowsMes=datosMes.filter(r=>r.songId===s.id).sort((a,b)=>a.date.localeCompare(b.date));
+    const ultimo=rowsMes[rowsMes.length-1]||getLatest(s.id);
+    const primero=rowsMes[0];
+    if(!ultimo)return;
+
+    // Card background
+    doc.setFillColor(248,249,250);
+    doc.roundedRect(margin,y,W-margin*2,26,2,2,'F');
+    doc.setDrawColor(...borderColor);doc.setLineWidth(0.3);
+    doc.roundedRect(margin,y,W-margin*2,26,2,2,'S');
+
+    // Color stripe izquierda
+    const rgb=hexToRgb(s.color);
+    doc.setFillColor(...rgb);
+    doc.roundedRect(margin,y,3,26,1,1,'F');
+
+    // Nombre canción
+    doc.setTextColor(...headerColor);
+    doc.setFontSize(9);doc.setFont('helvetica','bold');
+    doc.text(s.name.length>35?s.name.slice(0,33)+'…':s.name,margin+6,y+7);
+
+    // Último registro
+    doc.setTextColor(...grayText);
+    doc.setFontSize(7.5);doc.setFont('helvetica','normal');
+    doc.text(`Último registro: ${ultimo.date}`,margin+6,y+13);
+
+    // Publicaciones
+    const colW=(W-margin*2-6)/3;
+    const col1=margin+6, col2=margin+6+colW, col3=margin+6+colW*2;
+
+    doc.setTextColor(...grayText);doc.setFontSize(7);
+    doc.text('PUBLICACIONES',col1,y+19);
+    doc.text('VISUALIZACIONES',col2,y+19);
+    doc.text('TENDENCIA MES',col3,y+19);
+
+    doc.setTextColor(...headerColor);doc.setFontSize(9);doc.setFont('helvetica','bold');
+    doc.text(fmtNum(ultimo.publicaciones),col1,y+24);
+    doc.text(fmtNum(ultimo.visualizaciones),col2,y+24);
+
+    // Tendencia
+    if(primero&&ultimo&&primero.date!==ultimo.date){
+      const dPub=calcCrec(ultimo.publicaciones,primero.publicaciones);
+      if(dPub!==null){
+        const color=dPub>=0?greenColor:redColor;
+        doc.setTextColor(...color);
+        doc.text((dPub>=0?'▲ ':' ▼ ')+Math.abs(dPub).toFixed(2)+'%',col3,y+24);
+      }
+    } else {
+      doc.setTextColor(...grayText);doc.text('Sin datos suficientes',col3,y+24);
+    }
+
+    y+=30;
+    if(y>250){doc.addPage();y=margin;}
+  });
+
+  y+=4;
+
+  // ── GRÁFICO (captura del canvas) ──
+  doc.setDrawColor(...borderColor);doc.setLineWidth(0.3);
+  doc.line(margin,y,W-margin,y);y+=7;
+  doc.setTextColor(...headerColor);
+  doc.setFontSize(10);doc.setFont('helvetica','bold');
+  doc.text('Evolución de publicaciones — mes actual',margin,y);y+=5;
+
+  try{
+    const canvas=document.getElementById('mainChart');
+    const imgData=canvas.toDataURL('image/png',0.9);
+    const chartH=55;
+    doc.addImage(imgData,'PNG',margin,y,W-margin*2,chartH);
+    y+=chartH+8;
+  }catch(e){
+    doc.setTextColor(...grayText);doc.setFontSize(8);
+    doc.text('(Gráfico no disponible)',margin,y+5);y+=12;
+  }
+
+  // ── TABLA HISTORIAL ──
+  if(y>230){doc.addPage();y=margin;}
+  doc.setDrawColor(...borderColor);doc.setLineWidth(0.3);
+  doc.line(margin,y,W-margin,y);y+=7;
+  doc.setTextColor(...headerColor);
+  doc.setFontSize(10);doc.setFont('helvetica','bold');
+  doc.text('Historial de registros del mes',margin,y);y+=6;
+
+  // Cabecera tabla
+  const cols=['Fecha','Canción','Publicaciones','Visualizaciones','Crec. Pub','Crec. Vis'];
+  const colWidths=[24,52,30,36,22,22];
+  let cx=margin;
+  doc.setFillColor(243,244,246);
+  doc.rect(margin,y,W-margin*2,6,'F');
+  doc.setTextColor(...grayText);doc.setFontSize(7);doc.setFont('helvetica','bold');
+  cols.forEach((c,i)=>{doc.text(c,cx+1,y+4);cx+=colWidths[i];});
+  y+=6;
+
+  // Filas
+  const rowsMes=datosMes.sort((a,b)=>b.date.localeCompare(a.date)||a.songId-b.songId);
+  rowsMes.forEach((r,ri)=>{
+    if(y>280){doc.addPage();y=margin;}
+    const s=SONGS[r.songId]||SONGS[0];
+    const prev=getPrev(r.songId,r.date);
+    const dPub=prev?calcCrec(r.publicaciones,prev.publicaciones):null;
+    const dVis=prev?calcCrec(r.visualizaciones,prev.visualizaciones):null;
+    if(ri%2===0){doc.setFillColor(249,250,251);doc.rect(margin,y,W-margin*2,5.5,'F');}
+    doc.setDrawColor(...borderColor);doc.setLineWidth(0.1);
+    doc.line(margin,y+5.5,W-margin,y+5.5);
+    cx=margin;
+    doc.setTextColor(...headerColor);doc.setFontSize(7);doc.setFont('helvetica','normal');
+    const vals=[
+      r.date,
+      (r.songName||s.name).slice(0,28),
+      fmtNum(r.publicaciones),
+      fmtNum(r.visualizaciones),
+      dPub!==null?(dPub>=0?'▲ ':' ▼ ')+Math.abs(dPub).toFixed(2)+'%':'—',
+      dVis!==null?(dVis>=0?'▲ ':' ▼ ')+Math.abs(dVis).toFixed(2)+'%':'—',
+    ];
+    vals.forEach((v,i)=>{
+      if(i>=4&&v!=='—'){
+        const isUp=v.includes('▲');
+        doc.setTextColor(...(isUp?greenColor:redColor));
+      } else {
+        doc.setTextColor(...headerColor);
+      }
+      doc.text(String(v),cx+1,y+4);
+      cx+=colWidths[i];
+    });
+    y+=5.5;
+  });
+
+  // ── PIE ──
+  const totalPages=doc.getNumberOfPages();
+  for(let i=1;i<=totalPages;i++){
+    doc.setPage(i);
+    doc.setFillColor(...headerColor);
+    doc.rect(0,287,W,10,'F');
+    doc.setTextColor(148,163,184);doc.setFontSize(7);doc.setFont('helvetica','normal');
+    doc.text('Lujo Network · TikTok Performance Tracker · Confidencial',margin,293);
+    doc.text(`Pág. ${i} / ${totalPages}`,W-margin,293,{align:'right'});
+  }
+
+  const filename=`lujo_tiktok_${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}.pdf`;
+  doc.save(filename);
+}
+
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16);
+  const g=parseInt(hex.slice(3,5),16);
+  const b=parseInt(hex.slice(5,7),16);
+  return[r,g,b];
+}
+function fmtNum(n){
+  if(n==null||isNaN(n))return'—';
+  if(n>=1e9)return(n/1e9).toFixed(2)+'B';
+  if(n>=1e6)return(n/1e6).toFixed(2)+'M';
+  if(n>=1e3)return(n/1e3).toFixed(1)+'K';
+  return Math.round(n).toLocaleString('es-ES');
 }
 
 window.onload=()=>{ initGoogleAuth(); };
