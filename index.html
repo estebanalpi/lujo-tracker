@@ -314,6 +314,18 @@ function showDashboard(){
 }
 
 // ── SHEETS ─────────────────────────────────────────────────
+function parseNum(v){
+  // Elimina puntos de miles, convierte coma decimal a punto
+  const s=String(v||'').trim().replace(/\./g,'').replace(',','.');
+  return parseFloat(s);
+}
+function parsePct(v){
+  // Acepta 0.0042, 0,42% o -0.74%
+  const s=String(v||'').trim().replace('%','').replace(/\./g,'').replace(',','.');
+  const n=parseFloat(s);
+  // Si el valor es mayor que 1 asumimos que viene en porcentaje, convertir a decimal
+  return Math.abs(n)>1 ? n/100 : n;
+}
 function parseDateToISO(d){
   d=String(d||'').trim();
   if(d.includes('/')){const p=d.split('/');return`${p[2]||'2026'}-${(p[1]||'01').padStart(2,'0')}-${(p[0]||'01').padStart(2,'0')}`;}
@@ -341,10 +353,10 @@ async function loadSheetData(){
       return{
         date:parseDateToISO((r[0]||'').trim()),
         songId:songId>=0?songId:0,songName,
-        publicaciones:parseFloat((r[2]||'').toString().replace(/[^0-9.]/g,'')),
-        visualizaciones:parseFloat((r[3]||'').toString().replace(/[^0-9.]/g,'')),
-        crecPub:parseFloat((r[4]||'').toString().replace(/[^0-9.,-]/g,'').replace(',','.')),
-        crecVis:parseFloat((r[5]||'').toString().replace(/[^0-9.,-]/g,'').replace(',','.')),
+        publicaciones:parseNum(r[2]),
+        visualizaciones:parseNum(r[3]),
+        crecPub:parsePct(r[4]),
+        crecVis:parsePct(r[5]),
       };
     }).filter(r=>r.date&&!isNaN(r.publicaciones));
 
